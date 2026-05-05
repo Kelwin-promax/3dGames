@@ -1,6 +1,13 @@
 import * as THREE from 'three';
+// Importa o loader para arquivos GLTF/GLB
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 // Importa a imagem como um módulo (Vite gerencia o caminho automaticamente)
 import kelwinImg from './assets/KelwinMogger.jpeg';
+// O sufixo ?url é necessário para que o Vite retorne o caminho do arquivo .glb
+import athleteModel from './models/athlete_blond_female.glb?url';
+
+// Caminho direto do modelo (assumindo que você moveu para a pasta public/models/)
+const athleteModelPath = '/models/athlete_blond_female.glb';
 
 // 1. Cena e Câmera
 const scene = new THREE.Scene();
@@ -22,92 +29,59 @@ const roomMaterial = new THREE.MeshStandardMaterial({ color: 0x444444, side: THR
 const room = new THREE.Mesh(roomGeometry, roomMaterial);
 scene.add(room);
 
-// --- CRIAÇÃO DO PERSONAGEM ESTILO STEVE ---
+// --- CARREGAMENTO DO MODELO 3D ---
 
-// 1. O Grupo Principal (este será o novo 'player' para movimentação)
 const player = new THREE.Group();
 scene.add(player);
 
-// Materiais (Cores básicas estilo Steve para teste)
-const skinMat = new THREE.MeshStandardMaterial({ color: 0xffdbac }); // Pele
-const blueShirtMat = new THREE.MeshStandardMaterial({ color: 0x00a86b }); // Camiseta
-const darkBluePantsMat = new THREE.MeshStandardMaterial({ color: 0x0000cd }); // Calça
-const hairMat = new THREE.MeshStandardMaterial({ color: 0x3f2413 }); // Cabelo/Tênis
+let mixer; // Para controlar as animações do modelo
+let actions = {};
+let activeAction;
 
-// --- CONFIGURAÇÃO DA TEXTURA ---
-const textureLoader = new THREE.TextureLoader();
-const kelwinFaceTexture = textureLoader.load(kelwinImg);
-// NearestFilter mantém os pixels nítidos (estilo Minecraft)
-kelwinFaceTexture.magFilter = THREE.NearestFilter;
-const faceMat = new THREE.MeshStandardMaterial({ map: kelwinFaceTexture });
+const loader = new GLTFLoader();
+loader.load(athleteModel, (gltf) => {
+loader.load(athleteModelPath, (gltf) => {
+    const model = gltf.scene;
+    
+    // 1. Aumentamos a escala para um tamanho mais visível (ex: 3x o original)
+    model.scale.set(3, 3, 3);
+    // 1. Escala aumentada para um tamanho considerável (5x)
+    model.scale.set(5, 5, 5);
 
-// 2. CORPO (Tronco)
-const torsoGeo = new THREE.BoxGeometry(1, 1.5, 0.5); // L:1, A:1.5, P:0.5
-const torso = new THREE.Mesh(torsoGeo, blueShirtMat);
-torso.position.y = 1.75; // Altura do centro do tronco
-player.add(torso); // Corpo é filho do grupo player
+    // 2. Calculamos a caixa delimitadora para encontrar a base (pés) do modelo
+    // Forçamos a atualização da matriz para o cálculo ser exato
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(model);
+    // Movemos o modelo para cima exatamente o necessário para que a base fique no Y=0 do grupo
+    
+    // Movemos o modelo internamente para que o ponto Y=0 do grupo player seja exatamente onde estão os pés
+    model.position.y = -box.min.y;
 
-// 3. CABEÇA
-// Ordem: Direita, Esquerda, Topo, Fundo, Frente, Costas
-const headMaterials = [
-    skinMat, // +X (Direita)
-    skinMat, // -X (Esquerda)
-    skinMat, // +Y (Topo)
-    skinMat, // -Y (Fundo)
-    faceMat, // +Z (Frente)
-    skinMat  // -Z (Costas)
-];
+    player.add(model);
+    // Configuração de Animações
+    mixer = new THREE.AnimationMixer(model);
+    gltf.animations.forEach((clip) => {
+        actions[clip.name.toLowerCase()] = mixer.clipAction(clip);
+    });
 
-const headGeo = new THREE.BoxGeometry(1, 1, 1);
-const head = new THREE.Mesh(headGeo, headMaterials);
-head.position.y = 1.25; 
-torso.add(head);
-
-// 4. BRAÇOS
-const armGeo = new THREE.BoxGeometry(0.5, 1.5, 0.5);
-// Braço Direito
-const armR = new THREE.Group();
-armR.position.set(-0.75, 0.75, 0); // Posição do ombro
-torso.add(armR);
-const armRMesh = new THREE.Mesh(armGeo, skinMat);
-armRMesh.position.y = -0.75; // Desloca para o pivot ficar no topo
-armR.add(armRMesh);
-
-// Braço Esquerdo
-const armL = new THREE.Group();
-armL.position.set(0.75, 0.75, 0); // Posição do ombro
-torso.add(armL);
-const armLMesh = new THREE.Mesh(armGeo, skinMat);
-armLMesh.position.y = -0.75;
-armL.add(armLMesh);
-
-// 5. PERNAS
-const legGeo = new THREE.BoxGeometry(0.5, 1.5, 0.5);
-// Perna Direita
-const legR = new THREE.Group();
-legR.position.set(-0.25, -0.75, 0); // Posição do quadril
-torso.add(legR);
-const legRMesh = new THREE.Mesh(legGeo, darkBluePantsMat);
-legRMesh.position.y = -0.75;
-legR.add(legRMesh);
-
-// Perna Esquerda
-const legL = new THREE.Group();
-legL.position.set(0.25, -0.75, 0); // Posição do quadril
-torso.add(legL);
-const legLMesh = new THREE.Mesh(legGeo, darkBluePantsMat);
-legLMesh.position.y = -0.75;
-legL.add(legLMesh);
+    // Tenta tocar uma animação idle (parado) inicialmente
+    if (actions['idle']) {
+        activeAction = actions['idle'];
+        activeAction.play();
+    } else if (gltf.animations.length > 0) {
+        activeAction = mixer.clipAction(gltf.animations[0]);
+        activeAction.play();
+    }
+});
 
 // Ajuste final da posição do grupo 'player' para tocar o chão
-// Como o chão da sua caixa está em -5, ajustamos para que as pernas encostem nele
-player.position.y = -4.5; 
+player.position.y = -5; 
 
 // 4. Iluminação
-const light = new THREE.PointLight(0xffffff, 100);
-light.position.set(0, 3, 0);
-scene.add(light);
-scene.add(new THREE.AmbientLight(0x404040));
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2));
+const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+dirLight.position.set(0, 5, 5);
+scene.add(dirLight);
 
 // Posicione a câmera em um local alto e afastado para ver a caixa toda
 camera.position.set(0, 5, 12); 
@@ -169,36 +143,29 @@ window.addEventListener('resize', () => {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 });
 
-// Função para animar os membros do Steve (Lógica será adicionada no próximo passo)
-function animateSteve(t) {
-    // Amplitude do movimento (o quão longe o braço/perna vai)
-    const amplitude = 0.6; 
-
-    // Braços em oposição
-    armR.rotation.x = Math.sin(t) * amplitude;
-    armL.rotation.x = -Math.sin(t) * amplitude;
-
-    // Pernas em oposição aos braços
-    legR.rotation.x = -Math.sin(t) * amplitude;
-    legL.rotation.x = Math.sin(t) * amplitude;
-}
-
-let time = 0; // Defina fora do loop animate
+const clock = new THREE.Clock();
 
 // 6. Loop de Animação
 function animate() {
   requestAnimationFrame(animate);
   
-  // Incrementa o tempo se houver movimento
-  if (keys.w || keys.s || keys.a || keys.d) {
-      time += 0.15; // Velocidade da animação
-  } else {
-      // Suavemente reseta a pose quando parado usando lerp do Three.js
-      time = THREE.MathUtils.lerp(time, 0, 0.1);
+  const delta = clock.getDelta();
+  const isMoving = keys.w || keys.s || keys.a || keys.d;
+
+  if (mixer) {
+      mixer.update(delta);
+      
+      // Troca simples de animação baseada no movimento
+      const targetAction = isMoving ? (actions['run'] || actions['walk']) : actions['idle'];
+      
+      if (targetAction && activeAction !== targetAction) {
+          activeAction.fadeOut(0.2);
+          targetAction.reset().fadeIn(0.2).play();
+          activeAction = targetAction;
+      }
   }
 
   updateMovement();
-  animateSteve(time); // Nova função de animação
 
   renderer.render(scene, camera);
 }
